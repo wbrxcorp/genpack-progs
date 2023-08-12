@@ -1,4 +1,4 @@
-all: build-kernel.py recursive-touch.py overlay-init.py
+all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py
 
 install: build-kernel.py recursive-touch.py
 	mkdir -p /usr/local/sbin
@@ -9,3 +9,5 @@ install: build-kernel.py recursive-touch.py
 	chmod +x /usr/local/bin/recursive-touch
 	cp -a overlay-init.py /usr/bin/overlay-init
 	chmod +x /usr/bin/overlay-init
+	cp -a with-mysql.py /usr/local/sbin/with-mysql
+	chmod +x /usr/local/sbin/with-mysql

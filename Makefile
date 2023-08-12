@@ -1,12 +1,6 @@
-all: build-kernel.bin
+all: build-kernel.py
 
-build-kernel.zip: build-kernel.py
-	zip build-kernel.zip build-kernel.py
-
-build-kernel.bin: build-kernel.zip
-	echo '#!/usr/bin/env python' | cat - $^ > $@
-	chmod +x $@
-
-install: build-kernel.bin
+install: build-kernel.py
 	mkdir -p /usr/local/sbin
-	cp -a build-kernel.bin /usr/local/sbin/build-kernel
+	cp -a build-kernel.py /usr/local/sbin/build-kernel
+	chmod +x /usr/local/sbin/build-kernel

@@ -1,4 +1,4 @@
-all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py init.bin genpack-install.bin
+all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py download.py init.bin genpack-install.bin
 
 init.bin: init.cpp
 	g++ -std=c++20 -static-libgcc -static-libstdc++ -o $@ $< -lblkid -lmount
@@ -6,7 +6,7 @@ init.bin: init.cpp
 genpack-install.bin: genpack-install.cpp
 	g++ -std=c++23 -o  $@ $< -lmount -lblkid
 
-install: build-kernel.py recursive-touch.py init.bin
+install: build-kernel.py recursive-touch.py download.py init.bin genpack-install.bin
 	mkdir -p /usr/local/sbin
 	cp -a build-kernel.py /usr/local/sbin/build-kernel
 	chmod +x /usr/local/sbin/build-kernel
@@ -17,6 +17,8 @@ install: build-kernel.py recursive-touch.py init.bin
 	chmod +x /usr/bin/overlay-init
 	cp -a with-mysql.py /usr/local/sbin/with-mysql
 	chmod +x /usr/local/sbin/with-mysql
+	cp -a download.py /usr/local/bin/download
+	chmod +x /usr/local/bin/download
 	cp -a init.bin /init
 	cp -a genpack-install.bin /usr/bin/genpack-install
 

@@ -1,9 +1,9 @@
-all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py init
+all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py init.bin
 
-init: init.cpp
+init.bin: init.cpp
 	g++ -std=c++20 -static-libgcc -static-libstdc++ -o $@ $< -lblkid -lmount
 
-install: build-kernel.py recursive-touch.py init
+install: build-kernel.py recursive-touch.py init.bin
 	mkdir -p /usr/local/sbin
 	cp -a build-kernel.py /usr/local/sbin/build-kernel
 	chmod +x /usr/local/sbin/build-kernel
@@ -14,7 +14,7 @@ install: build-kernel.py recursive-touch.py init
 	chmod +x /usr/bin/overlay-init
 	cp -a with-mysql.py /usr/local/sbin/with-mysql
 	chmod +x /usr/local/sbin/with-mysql
-	cp -a init /
+	cp -a init.bin /init
 
 clean:
-	rm -f init
+	rm -f *.bin

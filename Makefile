@@ -1,4 +1,4 @@
-all: build-kernel.py recursive-touch.py
+all: build-kernel.py recursive-touch.py overlay-init.py
 
 install: build-kernel.py recursive-touch.py
 	mkdir -p /usr/local/sbin
@@ -7,3 +7,5 @@ install: build-kernel.py recursive-touch.py
 	mkdir -p /usr/local/bin
 	cp -a recursive-touch.py /usr/local/bin/recursive-touch
 	chmod +x /usr/local/bin/recursive-touch
+	cp -a overlay-init.py /usr/bin/overlay-init
+	chmod +x /usr/bin/overlay-init

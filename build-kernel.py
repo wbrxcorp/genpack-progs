@@ -110,12 +110,17 @@ def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", menucon
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--config", default="/kernel-config", help="Specify kernel config file")
     parser.add_argument("--menuconfig", action="store_true", default=False, help="Run menuconfig(implies --nocache)")
     parser.add_argument("kernelpkg", default="gentoo-sources", nargs='?', help="Kernel package ebuild name")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG)
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+        logging.debug("Debug mode enabled")
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     main(args.kernelpkg, args.config, args.menuconfig)
     print("Done.")

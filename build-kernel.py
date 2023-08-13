@@ -90,13 +90,14 @@ def get_kernel_id_from_kernel_cache(archive_path):
     return None
 
 def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", menuconfig=False, cache_file_name="/var/cache/build-kernel/kernel-cache.tar.gz"):
+    # emerge kernel and requirements
+    subprocess.check_call(["emerge", "-u", "-bk", "--binpkg-respect-use=y", "genkernel", "eclean-kernel", "linux-sources", kernelpkg], 
+        env={"PATH":os.environ["PATH"],"USE":"symlink","ACCEPT_LICENSE":"linux-fw-redistributable no-source-code"})
+
     if not menuconfig and is_kernel_built():
         print("Kernel already built. if you want to rebuild with different config, use --menuconfig")
         return
     #else
-    # emerge kernel and requirements
-    subprocess.check_call(["emerge", "-u", "-bk", "--binpkg-respect-use=y", "genkernel", "eclean-kernel", "linux-sources", kernelpkg], 
-        env={"PATH":os.environ["PATH"],"USE":"symlink","ACCEPT_LICENSE":"linux-fw-redistributable no-source-code"})
 
     kernel_id = get_kernel_id()
     if os.path.isfile(cache_file_name) and kernel_id == get_kernel_id_from_kernel_cache(cache_file_name):

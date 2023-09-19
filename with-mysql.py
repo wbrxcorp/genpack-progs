@@ -3,7 +3,7 @@ import os,argparse,subprocess,shutil,stat,time
 
 DATADIR="/var/lib/mysql"
 SOCKET="/var/run/mysqld/mysqld.sock"
-MYSQLD="/usr/sbin/mysqld"
+MYSQLD="/usr/bin/mysqld"
 
 class MySQL:
     def __init__(self, datadir, socket):

@@ -43,6 +43,18 @@ def split_into_category_and_name_and_version(line):
     pn, ver, rev = pn_ver_rev
     return (category,pn, ver + ("" if rev == "r0" else "-" + rev))
 
+def search_alternative_versions(ebuilds, category, name):
+    alternatives = []
+    for ebuild in ebuilds:
+        if not ebuild.startswith("%s/%s/" % (category, name)): continue
+        #else
+        ebuild = ebuild[len("%s/%s/" % (category, name)):]
+        if not ebuild.endswith(".ebuild"): continue
+        #else
+        version = ebuild[len(name) + 1:-len(".ebuild")]
+        alternatives.append(version)
+    return alternatives
+
 def download_file(url, save_to):
     # if file is already downloaded and fresh enough, do nothing
     if os.path.isfile(save_to):
@@ -84,7 +96,6 @@ if __name__ == "__main__":
             ebuilds.add(file)
             #print("Found: %s" % file)
 
-    outdated = set()
     if args.report_file and os.path.exists(args.report_file):
         print("Removing old report file: %s" % args.report_file)
         os.remove(args.report_file)
@@ -104,6 +115,8 @@ if __name__ == "__main__":
     ignoreable_categories = ["app-eselect", "acct-group", "acct-user", "virtual", "media-fonts", "x11-themes"]
     ignoreable_packages = ["app-admin/eselect", "sys-libs/timezone-data"]
 
+    num_outdated = 0
+
     for package in packages:
         category_and_name_and_version = split_into_category_and_name_and_version(package)
         if not category_and_name_and_version:
@@ -114,15 +127,26 @@ if __name__ == "__main__":
         if category in ignoreable_categories or ("%s/%s" % (category, name)) in ignoreable_packages: continue
         ebuild_name = "%s/%s/%s-%s.ebuild" % (category,name,name,version)
         #print(ebuild_name)
-        if ebuild_name not in ebuilds:
-            outdated.add(package)
-            print("Outdated: %s" % package)
-            if args.report_file:
-                with open(args.report_file, "a") as report_file:
-                    report_file.write("Outdated: %s\n" % package)
+        if ebuild_name in ebuilds: continue # not outdated
+        # else: search alternative versions for outdated packages
+        alternatives = search_alternative_versions(ebuilds, category, name)
+        if alternatives is not None and len(alternatives) > 0:
+            alt_str = " (alternatives: "
+            for i in range(len(alternatives)):
+                if i > 0: alt_str += ", "
+                alt_str += alternatives[i]
+            alt_str += ")"
+        else:
+            alt_str = ""
+        num_outdated += 1
+        print("Outdated: %s%s" % (package, alt_str))
+        if args.report_file:
+            with open(args.report_file, "a") as report_file:
+                report_file.write("Outdated: %s\n" % package)
 
-    if len(outdated) > 0:
-        print("%s outdated package(s) found." % len(outdated))
+    if num_outdated > 0:
+        print("%s outdated package(s) found." % num_outdated)
         exit(1)
     #else
     print("No outdated packages found.")
+    

@@ -1,3 +1,7 @@
+/**
+ * initramfs init to spawn overlay-init for system.img
+*/
+
 #include <unistd.h>
 #include <memory.h>
 #include <dirent.h>
@@ -366,6 +370,15 @@ static bool is_fat_dirty(const std::filesystem::path device)
     return dirty;
 }
 
+std::optional<std::string> get_kernel_arg(const std::vector<std::string>& args, const std::string& key)
+{
+    for (const auto& arg : args) {
+        if (arg == key) return "";
+        if (arg.starts_with(key + "=")) return arg.substr(key.size() + 1);
+    }
+    return std::nullopt;
+}
+
 static void init()
 {
     std::filesystem::path banner("/banner.txt");
@@ -380,18 +393,39 @@ static void init()
         }
         std::filesystem::remove(banner);
     }
-    std::filesystem::path dev("/dev"), sys("/sys");
+    std::filesystem::path dev("/dev"), sys("/sys"), proc("/proc");
     std::filesystem::create_directory(dev);
     if (mount("udev", dev, {fstype:"devtmpfs", flags:MS_NOSUID, data:"mode=0755,size=10M"}) != 0) throw std::runtime_error("Failed to mount /dev");
     std::filesystem::create_directory(sys);
     if (mount("sysfs", sys, {fstype:"sysfs", flags:MS_NOEXEC|MS_NOSUID|MS_NODEV}) != 0) throw std::runtime_error("Failed to mount /sys");
+    std::filesystem::create_directory(proc);
+    if (mount("proc", proc, {fstype:"proc"}) != 0) throw std::runtime_error("Failed to mount /proc");
+
+    // collect kernel args from /proc/cmdline
+    std::vector<std::string> kernel_args;
+    const std::filesystem::path cmdline("/proc/cmdline");
+    if (std::filesystem::exists(cmdline)) {
+        std::ifstream f(cmdline);
+        if (f) {
+            std::string arg;
+            while (f >> arg) {
+                kernel_args.push_back(arg);
+            }
+        } else {
+            std::cerr << "Warning: Failed to open /proc/cmdline" << std::endl;
+        }
+    } else {
+        std::cerr << "Warning: /proc/cmdline does not exist" << std::endl;
+    }
+    umount(proc);
+    std::filesystem::remove(proc); // /proc is not required anymore
 
     // search boot partition using boot_partition_uuid variable given by bootloader
-    const char *boot_partition_uuid = getenv("boot_partition_uuid");
+    auto boot_partition_uuid = get_kernel_arg(kernel_args, "boot_partition_uuid");
     std::optional<std::filesystem::path> boot_partition_dev;
-    if (boot_partition_uuid && boot_partition_uuid[0]) {
+    if (boot_partition_uuid.value_or("") != "") {
         for (int i = 0; i < 5; i++) {
-            boot_partition_dev = search_partition("UUID", boot_partition_uuid);
+            boot_partition_dev = search_partition("UUID", boot_partition_uuid.value());
             if (boot_partition_dev) break;
             //else
             if (i == 0) std::cout << "Waiting for boot partition to be online..." << std::endl;
@@ -435,7 +469,8 @@ static void init()
     }
 
     const auto data = (*boot_partition_fstype) == "vfat"? "codepage=437,fmask=177,dmask=077" : "";
-    const unsigned int flags = (*boot_partition_fstype) == "iso9660"? MS_RDONLY : MS_RELATIME;
+    bool is_iso9660 = (*boot_partition_fstype) == "iso9660";
+    const unsigned int flags = is_iso9660? MS_RDONLY : MS_RELATIME;
     if (mount(*boot_partition_dev, boot_partition, {fstype:*boot_partition_fstype, flags:flags, data:data}) != 0) {
         throw std::runtime_error("Failed to mount boot partition " + boot_partition_dev->string());
     }
@@ -451,9 +486,10 @@ static void init()
         }
     }
 
-    auto data_partition = get_data_partition(*boot_partition_dev);
-    if (!data_partition) {
-        std::cout << "Data partition could not be determined." << std::endl;
+    bool transient_root = is_iso9660 || get_kernel_arg(kernel_args, "overlay-init:transient") == "";
+    auto data_partition = transient_root? std::nullopt : get_data_partition(*boot_partition_dev);
+    if (!transient_root && !data_partition) {
+        std::cerr << "Data partition could not be determined." << std::endl;
     }
 
     auto system_img = boot_partition / "system.img";
@@ -492,8 +528,10 @@ static void init()
     chdir("/");
     recursive_move(cfd, "/run/.shutdown");
     rmdir("/run/.shutdown/root"); // newroot mountpoint is not necessary in shutdown env
+    rmdir("/run/.shutdown/boot"); // boot mountpoint is not necessary in shutdown env
     close(cfd);
-    if (execl("/sbin/overlay-init", "/sbin/overlay-init", data_partition? data_partition->c_str() : NULL, NULL) != 0) {
+    if (execl("/sbin/overlay-init", "/sbin/overlay-init", 
+        transient_root? "transient" : (data_partition? data_partition->c_str() : NULL), NULL) != 0) {
         throw std::runtime_error("Executing /sbin/overlay-init failed");
     }
 }
@@ -518,13 +556,12 @@ static void shutdown()
     mount("/oldroot/run", "/mnt", NULL, MS_MOVE, NULL);
     recursive_umount("/oldroot");
     recursive_umount("/mnt/initramfs/ro");
+    std::cout << "Done." << std::endl;
 
+    /*
     std::filesystem::path boot_filesystem_mountpoint("/mnt/initramfs/boot");
     auto boot_partition_dev = get_source_device_from_mountpoint(boot_filesystem_mountpoint);
-    if (!boot_partition_dev) {
-        std::cerr << "Boot partition not found" << std::endl;
-        return;
-    }
+    if (!boot_partition_dev) throw std::runtime_error("Boot partition not found");
     //else
     if (determine_fstype(*boot_partition_dev).value_or("") != "vfat") return; // only vfat needs cleanup
 
@@ -538,11 +575,11 @@ static void shutdown()
     }
 
     if (umount(boot_filesystem_mountpoint.c_str()) != 0) {
-        std::cerr << "Unmounting boot partition failed." << std::endl;
-        return;
+        throw std::runtime_error("Unmounting boot partition failed.");
     }
 
     std::cout << "Cleaning up boot partition done." << std::endl;
+    */
 }
 
 int print_dependencies()
@@ -567,6 +604,7 @@ int main(int argc, char* argv[])
         }
         catch (const std::runtime_error& err) {
             std::cerr << err.what() << std::endl;
+            sleep(5);
         }
         auto arg = argc > 1? std::optional(std::string(argv[1])) : std::nullopt;
         if (arg == "poweroff") {
@@ -592,4 +630,4 @@ int main(int argc, char* argv[])
     return 0; // no reach here
 }
 
-// g++ -std=c++20 -static-libgcc -static-libstdc++ -o /init init-systemimg.cpp -lblkid -lmount
+// g++ -std=c++20 -static-libgcc -static-libstdc++ -o /init init.cpp -lblkid -lmount

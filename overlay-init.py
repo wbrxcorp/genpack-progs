@@ -20,7 +20,7 @@ def _exception_handler(exctype, value, traceback):
 
 def ensure_run_mounted():
     if os.path.ismount("/run"): return
-    if libc.mount(b"tmpfs", b"/run", b"tmpfs", MS_RELATIME, b"") < 0:
+    if libc.mount(b"tmpfs", b"/run", b"tmpfs", MS_RELATIME, b"nosuid,nodev,mode=0755") < 0:
         raise Exception("/run counldn't be mounted")
 
 def ensure_sys_mounted():
@@ -90,7 +90,9 @@ def coldplug_modules(root):
 def copytree_if_exists(srcdir, dstdir):
     if not os.path.isdir(srcdir): return False
     #else
+    logging.debug("Creating %s..." % dstdir)
     os.makedirs(dstdir,exist_ok=True)
+    logging.debug("Copying %s to %s..." % (srcdir, dstdir))
     shutil.copytree(srcdir, dstdir, dirs_exist_ok=True)
     return True
 
@@ -188,30 +190,35 @@ def main(data_partition=None):
     ensure_sys_mounted()
     ensure_proc_mounted()
 
-    fstype = get_fstype(data_partition) if data_partition is not None else None
-    if fstype == "crypto_LUKS":
-        if subprocess.call(["/sbin/cryptsetup","open", data_partition,"data"]) == 0:
-            data_partition = "/dev/mapper/data"
-        else: 
-            data_partition = None
+    transient = data_partition == "transient"
+    if not transient:
+        fstype = get_fstype(data_partition) if data_partition is not None else None
+        if fstype == "crypto_LUKS":
+            if subprocess.call(["/sbin/cryptsetup","open", data_partition,"data"]) == 0:
+                data_partition = "/dev/mapper/data"
+            else: 
+                data_partition = None
 
-    os.mkdir(RW)
-    if data_partition is not None and is_mountable_block_device(data_partition):
-        print("Trying to mount data partition %s..." % data_partition)
-        if subprocess.call(["mount", data_partition, RW]) == 0:
-            print("Data partition mounted.")
-        else:
-            print("Data partition mount failed.")
+        os.mkdir(RW)
+        if data_partition is not None and is_mountable_block_device(data_partition):
+            print("Trying to mount data partition %s..." % data_partition)
+            if subprocess.call(["mount", data_partition, RW]) == 0:
+                print("Data partition mounted.")
+            else:
+                print("Data partition mount failed.")
 
-    if not os.path.ismount(RW) and is_virtiofs_provided():
-        print("Trying to mount virtiofs.")
-        if subprocess.call(["mount", "-t", "virtiofs", "fs", RW]) == 0:
-            print("Virtiofs mounted.")
-        else:
-            print("Virtiofs mount failed.")
+        if not os.path.ismount(RW) and is_virtiofs_provided():
+            print("Trying to mount virtiofs.")
+            if subprocess.call(["mount", "-t", "virtiofs", "fs", RW]) == 0:
+                print("Virtiofs mounted.")
+            else:
+                print("Virtiofs mount failed.")
     
     if not os.path.ismount(RW):
-        print("Data partition is not mounted. Proceeding with tmpfs.")
+        if transient:
+            print("Transient mode(overlay-init:transient). Proceeding with tmpfs.")
+        else:
+            print("Data partition is not mounted. Proceeding with tmpfs.")
         mount_tmpfs(RW)
 
     overlay_upper = os.path.join(RW, "root")
@@ -243,13 +250,17 @@ def main(data_partition=None):
     shell = inifile.get("overlay-init", "shell", fallback=None)
     if shell == "1": subprocess.call(SHELL)
 
+    logging.debug("Mounting /run...")
     new_run = os.path.join(NEWROOT, "run")
     mount_tmpfs(new_run)
+    logging.debug("Moving %s..." % RW)
     move_mount(RW, os.path.join(new_run, "initramfs/rw"))
     if has_boot_partition:
+        logging.debug("Moving %s..." % BOOT)
         new_boot = os.path.join(new_run, "initramfs/boot")
         move_mount(BOOT, new_boot)
 
+    logging.debug("Preparing shutdown environment...")
     if copytree_if_exists(SHUTDOWN, os.path.join(new_run, "initramfs")):
         logging.info("Shutdown environment is ready.")
 

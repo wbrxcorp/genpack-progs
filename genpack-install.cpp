@@ -444,7 +444,7 @@ bool install_bootloader(const std::filesystem::path& disk, const std::filesystem
     {
         std::ofstream grubcfg(grub_dir / "grub.cfg");
         if (grubcfg) {
-            grubcfg << "insmod echo\ninsmod linux\ninsmod cpuid\n"
+            grubcfg << "insmod echo\ninsmod linux\ninsmod serial\n"
                 << "set BOOT_PARTITION=$root\n"
                 << "loopback loop /system.img\n"
                 << "set root=loop\nset prefix=($root)/boot/grub\nnormal"

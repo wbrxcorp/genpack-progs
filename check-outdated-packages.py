@@ -3,7 +3,7 @@
 # Author: shimarin
 # Created: 2023-12-16
 
-import os,re,time,argparse,urllib.request,tarfile
+import os,re,time,argparse,urllib.request,subprocess
 
 _v = r"(\d+)((\.\d+)*)([a-z]?)((_(pre|p|beta|alpha|rc)\d*)*)"
 _rev = r"\d+"
@@ -72,11 +72,10 @@ if __name__ == "__main__":
     parser.add_argument("--report-file", type=str, default=None, help="Report file")
     args = parser.parse_args()
 
-    RUNTIME_DIR = os.getenv("XDG_RUNTIME_DIR")
-    if not RUNTIME_DIR:
-        RUNTIME_DIR = "/run"
+    cache_dir = "/var/cache/check-outdated-packages"
+    if not os.path.isdir(cache_dir): os.makedirs(cache_dir)
 
-    PORTAGE_LATEST_TAR_XZ = os.path.join(RUNTIME_DIR, "portage-latest-for-check-outdated-packages.tar.xz")
+    PORTAGE_LATEST_TAR_XZ = os.path.join(cache_dir, "portage-latest-for-check-outdated-packages.tar.xz")
 
     print("Downloading portage-latest.tar.xz...")
     if download_file("http://ftp.iij.ad.jp/pub/linux/gentoo/snapshots/portage-latest.tar.xz", PORTAGE_LATEST_TAR_XZ):
@@ -84,10 +83,18 @@ if __name__ == "__main__":
     else:
         print("Already downloaded.")
 
+    file_list = []
     print("Getting file list from portage-latest.tar.xz...")
-    with tarfile.open(PORTAGE_LATEST_TAR_XZ, "r:xz") as tar:
-        file_list = tar.getnames()
 
+    tar = subprocess.Popen(["tar", "tf", PORTAGE_LATEST_TAR_XZ], stdout=subprocess.PIPE)
+    for line in tar.stdout:
+        decoded_line = line.decode("utf-8").strip()
+        if decoded_line != "": file_list.append(decoded_line)
+    if tar.wait() != 0:
+        print("tar failed.")
+        exit(1)
+
+    print("%d entries. Analyzing..." % len(file_list))
     ebuilds = set()
     for file in file_list:
         if not file.startswith("portage/"): continue

@@ -100,7 +100,10 @@ def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", menucon
     #else
 
     kernel_id = get_kernel_id()
-    if os.path.isfile(cache_file_name) and kernel_id == get_kernel_id_from_kernel_cache(cache_file_name):
+    config_timestamp = os.path.getmtime(config)
+    cache_file_timestamp = os.path.getmtime(cache_file_name) if os.path.isfile(cache_file_name) else 0
+
+    if config_timestamp < cache_file_timestamp and kernel_id == get_kernel_id_from_kernel_cache(cache_file_name):
         print("Kernel cache for %s found. Using it." % kernel_id)
         subprocess.check_call(["tar", "-C", "/", "-xf", cache_file_name])
         subprocess.check_call(["make", "prepare"], cwd="/usr/src/linux")

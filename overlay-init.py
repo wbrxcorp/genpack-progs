@@ -10,6 +10,8 @@ libc.reboot.argtypes = (ctypes.c_int,)
 RB_HALT_SYSTEM = 0xcdef0123
 libc.mount.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_char_p)
 MS_MOVE = 0x2000
+MS_NOSUID = 2
+MS_NODEV = 4
 MS_RELATIME = (1<<21)
 libc.umount.argtypes = (ctypes.c_char_p,)
 libc.pivot_root.argtypes = (ctypes.c_char_p, ctypes.c_char_p)
@@ -20,7 +22,7 @@ def _exception_handler(exctype, value, traceback):
 
 def ensure_run_mounted():
     if os.path.ismount("/run"): return
-    if libc.mount(b"tmpfs", b"/run", b"tmpfs", MS_RELATIME, b"nosuid,nodev,mode=0755") < 0:
+    if libc.mount(b"tmpfs", b"/run", b"tmpfs", MS_RELATIME|MS_NOSUID|MS_NODEV, b"mode=0755") < 0:
         raise Exception("/run counldn't be mounted")
 
 def ensure_sys_mounted():

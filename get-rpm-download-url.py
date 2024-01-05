@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # A utility to determin rpm pacckage URL to download
 # Usage: get-rpm-download-url.py <repo> <package> [--arch <arch>] [--ttl <ttl>]
 # 

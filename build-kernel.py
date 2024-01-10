@@ -89,7 +89,7 @@ def get_kernel_id_from_kernel_cache(archive_path):
     logging.warning("Could not find kernel id from kernel cache")
     return None
 
-def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", menuconfig=False, cache_file_name="/var/cache/build-kernel/kernel-cache.tar.gz"):
+def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", nocache=False, menuconfig=False, cache_file_name="/var/cache/build-kernel/kernel-cache.tar.gz"):
     # emerge kernel and requirements
     subprocess.check_call(["emerge", "-u", "-bk", "--binpkg-respect-use=y", "genkernel", "eclean-kernel", "linux-sources", kernelpkg], 
         env={"PATH":os.environ["PATH"],"USE":"symlink","ACCEPT_LICENSE":"linux-fw-redistributable no-source-code"})
@@ -101,7 +101,7 @@ def main(kernelpkg="gentoo-sources",config="/etc/kernels/kernel-config", menucon
 
     kernel_id = get_kernel_id()
     config_timestamp = os.path.getmtime(config)
-    cache_file_timestamp = os.path.getmtime(cache_file_name) if os.path.isfile(cache_file_name) else 0
+    cache_file_timestamp = os.path.getmtime(cache_file_name) if not nocache and os.path.isfile(cache_file_name) else 0
 
     if config_timestamp < cache_file_timestamp and kernel_id == get_kernel_id_from_kernel_cache(cache_file_name):
         print("Kernel cache for %s found. Using it." % kernel_id)
@@ -116,6 +116,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--config", default="/kernel-config", help="Specify kernel config file")
+    parser.add_argument("--nocache", action="store_true", default=False, help="Do not use kernel cache")
     parser.add_argument("--menuconfig", action="store_true", default=False, help="Run menuconfig(implies --nocache)")
     parser.add_argument("kernelpkg", default="gentoo-sources", nargs='?', help="Kernel package ebuild name")
     args = parser.parse_args()
@@ -126,5 +127,5 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.INFO)
 
-    main(args.kernelpkg, args.config, args.menuconfig)
+    main(args.kernelpkg, args.config, args.nocache or args.menuconfig,args.menuconfig)
     print("Done.")

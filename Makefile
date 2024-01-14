@@ -23,6 +23,8 @@ install: build-kernel.py recursive-touch.py download.py init.bin genpack-install
 	chmod +x /usr/local/bin/download
 	cp -a get-rpm-download-url.py /usr/local/bin/get-rpm-download-url
 	chmod +x /usr/local/bin/get-rpm-download-url
+	cp -a findelf.py /usr/local/bin/findelf
+	chmod +x /usr/local/bin/findelf
 	cp -a init.bin /init
 	cp -a genpack-install.bin /usr/bin/genpack-install
 	cp -a install-cloudflared.py /usr/bin/install-cloudflared

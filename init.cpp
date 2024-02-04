@@ -428,7 +428,7 @@ static void init()
             boot_partition_dev = search_partition("UUID", boot_partition_uuid.value());
             if (boot_partition_dev) break;
             //else
-            if (i == 0) std::cout << "Waiting for boot partition to be online..." << std::endl;
+            if (i == 0) std::cout << "Waiting for boot partition '" << boot_partition_uuid.value() << "' to be online..." << std::endl;
             sleep(1);
         }
     }

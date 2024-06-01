@@ -6,6 +6,7 @@
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/mman.h>
 
 #include <libmount/libmount.h>
 #include <blkid/blkid.h>
@@ -19,12 +20,53 @@
 #include <set>
 #include <list>
 #include <regex>
+#include <mutex>
 #include <ext/stdio_filebuf.h> // for __gnu_cxx::stdio_filebuf
 
 #include <getopt.h>
 
 static const std::filesystem::path boot_partition("/run/initramfs/boot");
 static const std::filesystem::path installed_system_image(boot_partition / "system.img");
+
+static std::set<std::string> common_grub_modules = {
+    "loopback", "xfs", "btrfs", "fat", "ntfs", "ntfscomp", "ext2",  "iso9660","lvm", "squash4", "ata", 
+    "part_gpt", "part_msdos", "blocklist", 
+    "normal", "configfile", "linux", "multiboot", "multiboot2","chain", 
+    "echo",   "test", "probe",  "search",  "gzio", "cpuid", "minicmd","sleep",
+    "all_video", "videotest", "serial", "png", "gfxterm_background", "font", "terminal","videoinfo","gfxterm", "keystatus"
+};
+
+static const std::vector<std::string>& bios_grub_modules()
+{
+    static std::vector<std::string> bios_grub_modules(common_grub_modules.begin(), common_grub_modules.end());
+    std::once_flag initialized;
+    std::call_once(initialized, []() {
+        bios_grub_modules.push_back("biosdisk");
+    });
+    return bios_grub_modules;
+}
+
+static std::string bios_grub_modules_string()
+{
+    std::string str;
+    for (const auto& m:bios_grub_modules()) {
+        str += m + " ";
+    }
+    // remove last space
+    str.pop_back();
+    return str;
+}
+
+static const std::vector<std::string>& efi_grub_modules()
+{
+    static std::vector<std::string> efi_grub_modules(common_grub_modules.begin(), common_grub_modules.end());
+    std::once_flag initialized;
+    std::call_once(initialized, []() {
+        efi_grub_modules.push_back("efi_gop");
+        efi_grub_modules.push_back("efi_uga");
+    });
+    return efi_grub_modules;
+}
 
 bool is_dir(const std::filesystem::path& path)
 {
@@ -415,6 +457,46 @@ void copy_system_cfg_ini(const std::optional<std::filesystem::path>& system_cfg,
     }
 }
 
+template <typename T> T with_memfd(const std::string& name, unsigned int flags, std::function<T(const std::filesystem::path&)> func)
+{
+    int fd = memfd_create(name.c_str(), flags);
+    if (fd < 0) throw std::runtime_error("memfd_create() failed.");
+    auto rst = func(std::filesystem::path("/proc") / std::to_string(getpid()) / "fd" / std::to_string(fd));
+    close(fd);
+    return rst;
+}
+
+bool generate_efi_bootloader(const std::filesystem::path& output)
+{
+    return with_memfd<bool>("grub.cfg", 0, [&output](const auto& grub_cfg) {
+        {
+            std::ofstream cfgfile(grub_cfg);
+            if (!cfgfile) {
+                std::cout << "Writing grub.cfg on memfd failed." << std::endl;
+                return false;
+            }
+            //else
+            cfgfile << "set BOOT_PARTITION=$root\n"
+                << "loopback loop /system.img\n"
+                << "set root=loop\n"
+                << "set prefix=($root)/boot/grub\n"
+                << std::endl;
+        }
+
+        std::vector<std::string> args = {"-p", "/boot/grub", 
+            "-c", grub_cfg.string(),
+            "-o", output.string(), "-O", "x86_64-efi"};
+        args.insert(args.end(), efi_grub_modules().begin(), efi_grub_modules().end());
+        auto rst = (exec("grub-mkimage", args) == 0);
+        if (exec("grub-mkimage", args) != 0) {
+            std::cout << "grub-mkimage(EFI) failed." << std::endl;
+            return false;
+        }
+        // else
+        return true;
+    });
+}
+
 bool install_bootloader(const std::filesystem::path& disk, const std::filesystem::path& boot_partition_dir, bool bios_compatible = true)
 {
     const bool has_efi_grub = is_dir("/usr/lib/grub/x86_64-efi");
@@ -426,32 +508,31 @@ bool install_bootloader(const std::filesystem::path& disk, const std::filesystem
         auto efi_boot = boot_partition_dir / "efi/boot";
         std::filesystem::create_directories(efi_boot);
         // install EFI bootloader
-        if (exec("grub-mkimage", {"-p", "/boot/grub", "-o", (efi_boot / "bootx64.efi").string(), "-O", "x86_64-efi", 
-            "xfs","btrfs","fat","part_gpt","part_msdos","normal","linux","echo","all_video","test","multiboot","multiboot2","search","sleep","iso9660","gzio",
-            "lvm","chain","configfile","cpuid","minicmd","gfxterm_background","png","font","terminal","squash4","serial","loopback","videoinfo","videotest",
-            "blocklist","probe","efi_gop","efi_uga", "keystatus"}) != 0) return false;
-        //else
+        // create grub.cfg to be embedded using memfd_create
+        if (!generate_efi_bootloader(efi_boot / "bootx64.efi")) return false;
     }
+
     if (bios_compatible) {
         // install BIOS bootloader
-        if (exec("grub-install", {"--target=i386-pc", "--recheck", std::string("--boot-directory=") + (boot_partition_dir / "boot").string(),
-            "--modules=xfs btrfs fat part_msdos normal linux echo all_video test multiboot multiboot2 search sleep gzio lvm chain configfile cpuid minicmd font terminal serial squash4 loopback videoinfo videotest blocklist probe gfxterm_background png keystatus",
+        if (exec("grub-install", {"--target=i386-pc", "--recheck", 
+            std::string("--boot-directory=") + (boot_partition_dir / "boot").string(),
+            "--modules=" + bios_grub_modules_string(),
             disk.string()}) != 0) return false;
-    }
-    // create boot config file
-    auto grub_dir = boot_partition_dir / "boot/grub";
-    std::filesystem::create_directories(grub_dir);
-    {
-        std::ofstream grubcfg(grub_dir / "grub.cfg");
-        if (grubcfg) {
-            grubcfg << "insmod echo\ninsmod linux\ninsmod serial\n"
-                << "set BOOT_PARTITION=$root\n"
-                << "loopback loop /system.img\n"
-                << "set root=loop\nset prefix=($root)/boot/grub\nnormal"
-                << std::endl;
-        } else {
-            std::cout << "Writing grub.cfg failed." << std::endl;
-            return false;
+        // create boot config file
+        auto grub_dir = boot_partition_dir / "boot/grub";
+        std::filesystem::create_directories(grub_dir);
+        {
+            std::ofstream grubcfg(grub_dir / "grub.cfg");
+            if (grubcfg) {
+                grubcfg << "insmod echo\ninsmod linux\ninsmod serial\n"
+                    << "set BOOT_PARTITION=$root\n"
+                    << "loopback loop /system.img\n"
+                    << "set root=loop\nset prefix=($root)/boot/grub\nnormal"
+                    << std::endl;
+            } else {
+                std::cout << "Writing grub.cfg failed." << std::endl;
+                return false;
+            }
         }
     }
     return true;
@@ -586,17 +667,11 @@ int create_iso9660_image(const std::filesystem::path& image, const std::optional
     }
     std::filesystem::create_directory(tempdir_path / "boot");
     auto boot_img = tempdir_path / "boot" / "boot.img";
-    std::vector<std::string> grub_modules = {
-        "loopback", "xfs", "btrfs", "fat", "ntfs", "ntfscomp", "ext2", "part_gpt", "part_msdos", "normal", "linux", "echo", "all_video", "serial", "test", "probe", "multiboot", 
-        "multiboot2", "search", "iso9660", "gzio", "lvm", "chain", "configfile", "cpuid", "minicmd", "gfxterm", "font", "terminal", "ata", "squash4", "videoinfo", 
-        "videotest", "png", "gfxterm_background", "sleep"
-    };
 
     std::vector<std::string> bios_grub_cmdline = {
         "-p", "/boot/grub", "-c", grubcfg_path.string(), "-o", boot_img.string(), "-O", "i386-pc-eltorito"
     };
-    bios_grub_cmdline.insert(bios_grub_cmdline.end(), grub_modules.begin(), grub_modules.end());
-    bios_grub_cmdline.push_back("biosdisk");
+    bios_grub_cmdline.insert(bios_grub_cmdline.end(), bios_grub_modules().begin(), bios_grub_modules().end());
 
     if (exec("grub-mkimage", bios_grub_cmdline) != 0) throw std::runtime_error("grub-mkimage(BIOS) failed");
 
@@ -606,9 +681,7 @@ int create_iso9660_image(const std::filesystem::path& image, const std::optional
     std::vector<std::string> efi_grub_cmdline = {
         "-p", "/boot/grub", "-c", grubcfg_path.string(), "-o", bootx64_efi.string(), "-O", "x86_64-efi"
     };
-    efi_grub_cmdline.insert(efi_grub_cmdline.end(), grub_modules.begin(), grub_modules.end());
-    efi_grub_cmdline.push_back("efi_gop");
-    efi_grub_cmdline.push_back("efi_uga");
+    efi_grub_cmdline.insert(efi_grub_cmdline.end(), efi_grub_modules().begin(), efi_grub_modules().end());
     if (exec("grub-mkimage", efi_grub_cmdline) != 0) throw std::runtime_error("grub-mkimage(EFI) failed");
 
     std::filesystem::remove(grubcfg_path);
@@ -702,7 +775,7 @@ int usage(const std::string& progname)
     return 1;
 }
 
-int main(int argc, char* argv[])
+static int _main(int argc, char** argv)
 {
     int data_partition = 1, cdrom = 0, gpt = 0;
     const struct option longopts[] = {
@@ -764,6 +837,25 @@ int main(int argc, char* argv[])
     }
 
     return 1;
+}
+
+//#define TEST
+
+#ifdef TEST
+int test_main(int argc, char** argv)
+{
+    generate_efi_bootloader("bootx64.efi");
+    return 0;
+}
+#endif // TEST
+
+int main(int argc, char* argv[])
+{
+#ifndef TEST
+    return _main(argc, argv);
+#else
+    return test_main(argc, argv);
+#endif
 }
 
 // g++ -std=c++23 -o genpack-install genpack-install.cpp -lmount -lblkid

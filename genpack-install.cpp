@@ -23,7 +23,7 @@
 #include <mutex>
 #include <ext/stdio_filebuf.h> // for __gnu_cxx::stdio_filebuf
 
-#include <getopt.h>
+#include <argparse/argparse.hpp>
 
 static const std::filesystem::path boot_partition("/run/initramfs/boot");
 static const std::filesystem::path installed_system_image(boot_partition / "system.img");
@@ -466,9 +466,12 @@ template <typename T> T with_memfd(const std::string& name, unsigned int flags, 
     return rst;
 }
 
-bool generate_efi_bootloader(const std::filesystem::path& output)
+bool generate_efi_bootloader(const std::string& arch, const std::filesystem::path& output)
 {
-    return with_memfd<bool>("grub.cfg", 0, [&output](const auto& grub_cfg) {
+    // create output directory if not exist
+    std::filesystem::create_directories(output.parent_path());
+
+    return with_memfd<bool>("grub.cfg", 0, [&arch,&output](const auto& grub_cfg) {
         {
             std::ofstream cfgfile(grub_cfg);
             if (!cfgfile) {
@@ -485,7 +488,7 @@ bool generate_efi_bootloader(const std::filesystem::path& output)
 
         std::vector<std::string> args = {"-p", "/boot/grub", 
             "-c", grub_cfg.string(),
-            "-o", output.string(), "-O", "x86_64-efi"};
+            "-o", output.string(), "-O", arch};
         args.insert(args.end(), efi_grub_modules().begin(), efi_grub_modules().end());
         auto rst = (exec("grub-mkimage", args) == 0);
         if (exec("grub-mkimage", args) != 0) {
@@ -499,17 +502,21 @@ bool generate_efi_bootloader(const std::filesystem::path& output)
 
 bool install_bootloader(const std::filesystem::path& disk, const std::filesystem::path& boot_partition_dir, bool bios_compatible = true)
 {
-    const bool has_efi_grub = is_dir("/usr/lib/grub/x86_64-efi");
-    if (!has_efi_grub && !bios_compatible) {
+    const bool has_efi_grub_64 = is_dir("/usr/lib/grub/x86_64-efi");
+    const bool has_efi_grub_32 = is_dir("/usr/lib/grub/i386-efi");
+    if (!has_efi_grub_64 && !has_efi_grub_32 && !bios_compatible) {
         std::cout << "Disk is not compatible with this system." << std::endl;
         return false;
     }
-    if (has_efi_grub) {
+    if (has_efi_grub_64) {
+        // install 64-bit EFI bootloader
         auto efi_boot = boot_partition_dir / "efi/boot";
-        std::filesystem::create_directories(efi_boot);
-        // install EFI bootloader
-        // create grub.cfg to be embedded using memfd_create
-        if (!generate_efi_bootloader(efi_boot / "bootx64.efi")) return false;
+        if (!generate_efi_bootloader("x86_64-efi", efi_boot / "bootx64.efi")) return false;
+    }
+    if (has_efi_grub_32) {
+        // install 32-bit EFI bootloader
+        auto efi_boot = boot_partition_dir / "efi/boot";
+        if (!generate_efi_bootloader("i386-efi", efi_boot / "bootia32.efi")) return false;
     }
 
     if (bios_compatible) {
@@ -755,9 +762,9 @@ int install_self(const std::filesystem::path& system_image,
     return 0;
 }
 
-int usage(const std::string& progname)
+int show_examples(const std::string& progname)
 {
-    std::cout << "Usage:" << std:: endl;
+    std::cout << "Example:" << std:: endl;
     std::cout << ' ' << progname << ' ' << "<system image file>" << std::endl;
     std::cout << "or" << std::endl;
     std::cout << ' ' << progname << ' ' << "--disk=<disk device path> [--label=<label>] [system image file]" << std::endl;
@@ -765,72 +772,73 @@ int usage(const std::string& progname)
     std::cout << ' ' << progname << ' ' << "--disk=list" << std::endl;
     std::cout << "or" << std::endl;
     std::cout << ' ' << progname << ' ' << "--disk=<iso image file> --cdrom [--label=<label>] [system image file]" << std::endl;
-    std::cout << "\noptions:" << std::endl;
-    std::cout << ' ' << "-y : Don't ask questions" << std::endl;
-    std::cout << ' ' << "--gpt : Always use GPT instead of MBR" << std::endl;
-    std::cout << ' ' << "--no-data-partition : Use entire disk as boot partition" << std::endl;
-    std::cout << ' ' << "--label=<volume label> : Specify volume label of boot partition or iso9660 image" << std::endl;
-    std::cout << ' ' << "--system-cfg=<system.cfg> : Install specified system.cfg file" << std::endl;
-    std::cout << ' ' << "--system-ini=<system.ini> : Install specified system.ini file" << std::endl;
     return 1;
 }
 
-static int _main(int argc, char** argv)
+int _main(int argc, char** argv)
 {
-    int data_partition = 1, cdrom = 0, gpt = 0;
-    const struct option longopts[] = {
-        //{   *name,           has_arg, *flag, val },
-        {  "help", no_argument, 0, 'h'},
-        {  "disk", required_argument,     0, 'd' },
-        {  "system-cfg", required_argument,     0, 'c' },
-        {  "system-ini", required_argument,     0, 'i' },
-        {  "label", required_argument,     0, 'l' },
-        { "no-data-partition",       no_argument, &data_partition,  0  },
-        { "gpt", no_argument, &gpt, 1 }, 
-        { "cdrom",       no_argument, &cdrom,  1  },
-        {         0,                 0,     0,  0  }, // termination
-    };
-    int c;
-    const char* optstring = "d:c:i:hy";
-    int longindex = 0;
-    bool yes = false;
-    std::optional<std::filesystem::path> disk, system_image, system_cfg, system_ini;
-    std::optional<std::string> label;
+    const std::string progname = "genpack-install";
+    argparse::ArgumentParser program(progname);
+    // syatem image file is optional
+    program.add_argument("system_image").help("System image file").nargs(argparse::nargs_pattern::optional);
+    program.add_argument("--disk").help("Disk device path");
+    program.add_argument("--system-cfg").help("Install specified system.cfg file");
+    program.add_argument("--system-ini").help("Install specified system.ini file");
+    program.add_argument("--label").help("Specify volume label of boot partition or iso9660 image");
+    program.add_argument("--no-data-partition").help("Use entire disk as boot partition").default_value(false).implicit_value(true);
+    program.add_argument("--gpt").help("Always use GPT instead of MBR").default_value(false).implicit_value(true);
+    program.add_argument("--cdrom").help("Create iso9660 image").default_value(false).implicit_value(true);
+    program.add_argument("-y").help("Don't ask questions").default_value(false).implicit_value(true);
 
-    while ((c = getopt_long(argc, argv, optstring, longopts, &longindex)) != -1) {
-        if (c == 'h') {
-            return usage(argv[0]);
-        } else if (c == 'd') {
-            disk = optarg;
-        } else if (c == 'c') {
-            system_cfg = optarg;
-        } else if (c == 'i') {
-            system_ini = optarg;
-        } else if (c == 'l') {
-            label = optarg;
-        } else if (c == 'y') {
-            yes = true;
-        }
+    try {
+        program.parse_args(argc, argv);
+    }
+    catch (const std::runtime_error& ex) {
+        std::cerr << ex.what() << std::endl;
+        std::cout << program << std::endl;
+        return -1;
     }
 
-    if (argc > optind + 1) {
-        std::cerr << "Too many system image files specified." << std::endl;
-        return 1;
+    if (!program.present("--disk") && !program.present("system_image")) {
+        std::cout << program << std::endl;
+        show_examples(progname);
+        return -1;
     }
-
-    if (argc > optind) {
-        system_image = argv[optind];
-    } else if (!disk) {
-        usage(argv[0]);
-        return 1;
-    }
+    //else
 
     try {
         if (geteuid() != 0) throw std::runtime_error("You must be root");
-        return disk? (cdrom? create_iso9660_image(disk.value(), system_image, system_cfg, system_ini, label) 
-            : install_to_disk(disk.value(), { 
-                system_image: system_image, data_partition: data_partition == 1, system_cfg: system_cfg, system_ini:system_ini, label:label, yes:yes, gpt:gpt == 1
-            })) : install_self(system_image.value(), system_cfg, system_ini);
+
+        if (program.present("--disk")) {
+            std::filesystem::path disk = program.get<std::string>("--disk");
+            //std::cout << "Disk: " << disk << std::endl;
+            std::filesystem::path system_image = program.present("system_image")? std::filesystem::path(program.get<std::string>("system_image")) : installed_system_image;
+            //std::cout << "System image: " << system_image << std::endl;
+            std::optional<std::filesystem::path> system_cfg = program.present("--system-cfg")? std::make_optional(std::filesystem::path(program.get<std::string>("--system-cfg"))) : std::nullopt;
+            //std::cout << "System cfg: " << (system_cfg? system_cfg.value().string() : "not specified") << std::endl;
+            std::optional<std::filesystem::path> system_ini = program.present("--system-ini")? std::make_optional(std::filesystem::path(program.get<std::string>("--system-ini"))) : std::nullopt;
+            //std::cout << "System ini: " << (system_ini? system_ini.value().string() : "not specified") << std::endl;
+            std::optional<std::string> label = program.present("--label")? std::make_optional(program.get<std::string>("--label")) : std::nullopt;
+            //std::cout << "Label: " << (label? label.value() : "not specified") << std::endl;
+            if (program.get<bool>("--cdrom")) {
+                return create_iso9660_image(disk, system_image, system_cfg, system_ini, label);
+            }
+            //else
+            return install_to_disk(disk, { 
+                system_image: system_image, 
+                data_partition: !program.get<bool>("--no-data-partition"), 
+                system_cfg: system_cfg, 
+                system_ini:system_ini, 
+                label:label, 
+                yes:program.get<bool>("-y"), 
+                gpt:program.get<bool>("--gpt")
+            });
+        }
+        // else 
+        std::filesystem::path system_image = program.get<std::string>("system_image");
+        return install_self(system_image, 
+            program.present("--system-cfg")? std::make_optional(std::filesystem::path(program.get<std::string>("--system-cfg"))) : std::nullopt,
+            program.present("--system-ini")? std::make_optional(std::filesystem::path(program.get<std::string>("--system-ini"))) : std::nullopt);
     }
     catch (const std::exception& ex) {
         std::cerr << ex.what() << std::endl;

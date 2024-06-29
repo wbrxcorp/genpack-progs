@@ -11,9 +11,18 @@ def get_download_url(user,repo,pattern):
 
     request = urllib.request.Request(url)
     assets = []
+    tarball_url = None
+    zipball_url = None
     with urllib.request.urlopen(request) as response:
         data = json.loads(response.read().decode())
         if "assets" in data: assets = data["assets"]
+        if "tarball_url" in data: tarball_url = data["tarball_url"]
+        if "zipball_url" in data: zipball_url = data["zipball_url"]
+
+    if pattern == "@tarball":
+        return tarball_url if tarball_url is not None else None
+    if pattern == "@zipball":
+        return zipball_url if zipball_url is not None else None
 
     for asset in assets:
         if "browser_download_url" not in asset: continue
@@ -33,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action='store_true', help='debug')
     parser.add_argument("user", help='github user')
     parser.add_argument("project", help='github project')
-    parser.add_argument("pattern", help='regex pattern to match filename')
+    parser.add_argument("pattern", help='regex pattern to match filename. @tarball to source tar.gz, @zipball to source zip')
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     download_url = get_download_url(args.user, args.project, args.pattern)

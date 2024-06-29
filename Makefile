@@ -1,4 +1,5 @@
-all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py download.py init.bin genpack-install.bin
+all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
+	download.py get-github-download-url.py init.bin genpack-install.bin
 
 init.bin: init.cpp
 	g++ -std=c++20 -static-libgcc -static-libstdc++ -o $@ $< -lblkid -lmount
@@ -6,7 +7,8 @@ init.bin: init.cpp
 genpack-install.bin: genpack-install.cpp
 	g++ -std=c++23 -o  $@ $< -lmount -lblkid
 
-install: build-kernel.py recursive-touch.py download.py init.bin genpack-install.bin
+install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
+		download.py get-github-download-url.py init.bin genpack-install.bin
 	mkdir -p /usr/local/sbin
 	cp -a build-kernel.py /usr/local/sbin/build-kernel
 	chmod +x /usr/local/sbin/build-kernel
@@ -23,6 +25,8 @@ install: build-kernel.py recursive-touch.py download.py init.bin genpack-install
 	chmod +x /usr/local/bin/download
 	cp -a get-rpm-download-url.py /usr/local/bin/get-rpm-download-url
 	chmod +x /usr/local/bin/get-rpm-download-url
+	cp -a get-github-download-url.py /usr/local/bin/get-github-download-url
+	chmod +x /usr/local/bin/get-github-download-url
 	cp -a findelf.py /usr/local/bin/findelf
 	chmod +x /usr/local/bin/findelf
 	cp -a init.bin /init

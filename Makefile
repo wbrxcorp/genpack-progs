@@ -15,6 +15,7 @@ install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
 	mkdir -p $(DESTDIR)/usr/local/bin
 	cp -a recursive-touch.py $(DESTDIR)/usr/local/bin/recursive-touch
 	chmod +x $(DESTDIR)/usr/local/bin/recursive-touch
+	mkdir -p $(DESTDIR)/usr/bin
 	cp -a overlay-init.py $(DESTDIR)/usr/bin/overlay-init
 	chmod +x $(DESTDIR)/usr/bin/overlay-init
 	cp -a check-outdated-packages.py $(DESTDIR)/usr/bin/check-outdated-packages

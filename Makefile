@@ -1,14 +1,11 @@
 all: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
-	download.py get-github-download-url.py init.bin genpack-install.bin
+	download.py get-github-download-url.py init.bin
 
 init.bin: init.cpp
 	g++ -std=c++20 -static-libgcc -static-libstdc++ -o $@ $< -lblkid -lmount
 
-genpack-install.bin: genpack-install.cpp
-	g++ -std=c++23 -o  $@ $< -lmount -lblkid
-
 install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
-		download.py get-github-download-url.py init.bin genpack-install.bin
+		download.py get-github-download-url.py init.bin
 	mkdir -p $(DESTDIR)/usr/local/sbin
 	cp -a build-kernel.py $(DESTDIR)/usr/local/sbin/build-kernel
 	chmod +x $(DESTDIR)/usr/local/sbin/build-kernel
@@ -31,7 +28,6 @@ install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
 	cp -a findelf.py $(DESTDIR)/usr/local/bin/findelf
 	chmod +x $(DESTDIR)/usr/local/bin/findelf
 	cp -a init.bin $(DESTDIR)/init
-	cp -a genpack-install.bin $(DESTDIR)/usr/bin/genpack-install
 	cp -a install-cloudflared.py $(DESTDIR)/usr/bin/install-cloudflared
 	chmod +x $(DESTDIR)/usr/bin/install-cloudflared
 

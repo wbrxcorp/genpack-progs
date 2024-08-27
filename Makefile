@@ -30,6 +30,8 @@ install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
 	cp -a init.bin $(DESTDIR)/init
 	cp -a install-cloudflared.py $(DESTDIR)/usr/bin/install-cloudflared
 	chmod +x $(DESTDIR)/usr/bin/install-cloudflared
+	cp -a genpack-get-all-package-files.py $(DESTDIR)/usr/bin/genpack-get-all-package-files
+	chmod +x $(DESTDIR)/usr/bin/genpack-get-all-package-files
 
 clean:
 	rm -f *.bin

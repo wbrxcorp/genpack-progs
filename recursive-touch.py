@@ -73,7 +73,7 @@ def main(argv, print_for_initramfs=False, dereference=False):
             print(file)
     else:
         for chunk in chunks(files, 10):
-            subprocess.run(["touch", "-h"] + chunk)
+            subprocess.run(["touch", "-ha"] + chunk)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

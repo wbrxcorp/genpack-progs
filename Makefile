@@ -5,7 +5,7 @@ init.bin: init.cpp
 	g++ -std=c++20 -static-libgcc -static-libstdc++ -o $@ $< -lblkid -lmount
 
 install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
-		download.py get-github-download-url.py init.bin
+		download.py get-github-download-url.py
 	mkdir -p $(DESTDIR)/usr/local/sbin
 	cp -a build-kernel.py $(DESTDIR)/usr/local/sbin/build-kernel
 	chmod +x $(DESTDIR)/usr/local/sbin/build-kernel
@@ -27,7 +27,6 @@ install: build-kernel.py recursive-touch.py overlay-init.py with-mysql.py \
 	chmod +x $(DESTDIR)/usr/local/bin/get-github-download-url
 	cp -a findelf.py $(DESTDIR)/usr/local/bin/findelf
 	chmod +x $(DESTDIR)/usr/local/bin/findelf
-	cp -a init.bin $(DESTDIR)/init
 	cp -a install-cloudflared.py $(DESTDIR)/usr/bin/install-cloudflared
 	chmod +x $(DESTDIR)/usr/bin/install-cloudflared
 	cp -a genpack-get-all-package-files.py $(DESTDIR)/usr/bin/genpack-get-all-package-files
